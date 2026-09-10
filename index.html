@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>華語問路練習小幫手 - Chinese Directions Practice</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js for web audio sound effects -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f1f5f9;
+        }
+
+        /* Pulsing animation for microphone listening state */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.15); opacity: 0.4; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        .animate-mic-pulse {
+            animation: pulse-ring 1.5s infinite ease-in-out;
+        }
+
+        /* Success green circle pulse animation */
+        @keyframes success-circle {
+            0% { transform: scale(0.5); opacity: 0; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(1); opacity: 0.9; }
+        }
+        .animate-success-circle {
+            animation: success-circle 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        /* Map Grid Canvas Container */
+        .map-canvas-container {
+            position: relative;
+            background-color: #e2e8f0;
+            border-radius: 1rem;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+            overflow: hidden;
+        }
+
+        /* Drag and drop visual cues */
+        .chunk-block {
+            user-select: none;
+            -webkit-user-select: none;
+            cursor: grab;
+            transition: all 0.15s ease;
+        }
+        .chunk-block:active {
+            cursor: grabbing;
+        }
+        .chunk-block.dragging {
+            opacity: 0.4;
+            transform: scale(0.95);
+        }
+
+        .drop-target-active {
+            border-color: #6366f1 !important;
+            background-color: #e0e7ff !important;
+        }
+
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="text-slate-800 h-screen w-screen overflow-hidden bg-slate-900 flex justify-center items-center p-0 sm:p-3">
+
+    <!-- MOBILE CONTAINER (Phone Frame Ratio) -->
+    <div class="w-full max-w-md h-full max-h-[100dvh] sm:max-h-[880px] bg-slate-100 sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden relative border-0 sm:border-4 sm:border-slate-800">
+
+        <!-- Top Header Bar -->
+        <header class="bg-indigo-600 text-white shadow-md px-3 py-2 flex items-center justify-between shrink-0 z-30">
+            <div class="flex items-center gap-2">
+                <div class="bg-white/20 p-1.5 rounded-lg backdrop-blur-sm">
+                    <i data-lucide="compass" class="w-5 h-5 text-yellow-300"></i>
+                </div>
+                <div>
+                    <h1 class="text-base font-extrabold tracking-tight flex items-center gap-1.5 leading-none">
+                        華語問路小達人
+                    </h1>
+                    <p class="text-[10px] text-indigo-200 leading-tight">Chinese Directions Practice</p>
+                </div>
+            </div>
+
+            <!-- Header Controls & Sound -->
+            <div class="flex items-center gap-1.5">
+                <button id="btn-sound-toggle" title="開啟/關閉音效" class="p-1.5 rounded-lg bg-indigo-700/60 hover:bg-indigo-700 text-indigo-100 transition">
+                    <i data-lucide="volume-2" id="icon-sound" class="w-4 h-4"></i>
+                </button>
+                <button id="btn-new-task" class="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold rounded-lg text-xs flex items-center gap-1 transition shadow-sm">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> 換題
+                </button>
+            </div>
+        </header>
+
+        <!-- Stats Counter Strip -->
+        <div class="bg-indigo-800 text-indigo-100 px-3 py-1 flex items-center justify-between text-xs shrink-0 border-b border-indigo-700/50">
+            <div class="flex items-center gap-1">
+                <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-400"></i>
+                <span>正確: <strong id="stat-correct-count" class="text-emerald-300 font-black">0</strong></span>
+            </div>
+            <div class="flex items-center gap-1">
+                <i data-lucide="timer" class="w-3.5 h-3.5 text-amber-400"></i>
+                <span>本次: <strong id="stat-task-time" class="text-amber-300 font-black">00:00</strong></span>
+            </div>
+            <div class="flex items-center gap-1">
+                <i data-lucide="clock" class="w-3.5 h-3.5 text-sky-400"></i>
+                <span>總計: <strong id="stat-total-time" class="text-sky-300 font-black">00:00</strong></span>
+            </div>
+        </div>
+
+        <!-- MAIN APP CONTENT (Fit in 1 Viewport, Flex Column) -->
+        <main class="flex-1 min-h-0 flex flex-col p-2.5 gap-2 overflow-hidden">
+
+            <!-- Dialogue & Task Prompt Box (Compact) -->
+            <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl p-2.5 text-white shadow-sm shrink-0 relative overflow-hidden">
+                <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <div class="w-9 h-9 bg-amber-300 text-slate-900 rounded-xl flex items-center justify-center text-lg font-black shadow border border-white shrink-0">
+                            🚶‍♂️
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-[10px] text-indigo-200 font-medium">迷路的小人問：</div>
+                            <div id="prompt-dialogue-text" class="text-sm font-bold truncate">
+                                我要去<span id="target-name-display" class="text-yellow-300 underline font-extrabold px-1">郵局</span>，請你幫我好嗎？
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-1 shrink-0">
+                        <button id="btn-replay-prompt" title="重播語音" class="p-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white transition">
+                            <i data-lucide="volume-2" class="w-4 h-4"></i>
+                        </button>
+                        <button id="btn-toggle-answer" class="text-[11px] bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm transition">
+                            <i data-lucide="lightbulb" class="w-3.5 h-3.5"></i> <span id="answer-btn-text">解答</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Answer Display Panel (Collapsible Overlay) -->
+                <div id="answer-panel" class="hidden mt-2 pt-2 border-t border-white/20 bg-slate-900/60 -mx-2.5 -mb-2.5 p-2.5 rounded-b-xl backdrop-blur-md">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-[11px] font-bold text-amber-300 flex items-center gap-1">
+                            <i data-lucide="key-round" class="w-3.5 h-3.5"></i> 解答參考 (Answer Key):
+                        </span>
+                        <button id="btn-speak-answer" class="text-[10px] bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-2 py-0.5 rounded flex items-center gap-1">
+                            <i data-lucide="volume-2" class="w-3 h-3"></i> 唸出解答
+                        </button>
+                    </div>
+                    <div id="answer-text-display" class="bg-white/10 p-2 rounded-lg text-xs text-amber-100 border border-white/10 leading-snug">
+                        --
+                    </div>
+                    <div class="mt-1 flex justify-end">
+                        <button id="btn-apply-answer" class="text-[10px] text-indigo-200 hover:text-white underline flex items-center gap-1">
+                            <i data-lucide="copy" class="w-3 h-3"></i> 套用至輸入框
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dynamic SVG Map Container (Flexible Center Height) -->
+            <div class="map-canvas-container flex-1 min-h-0 relative bg-slate-800 rounded-xl shadow-inner border border-slate-300 overflow-hidden flex items-center justify-center">
+                
+                <!-- SVG Canvas for Map -->
+                <svg id="map-svg" class="w-full h-full select-none" viewBox="0 0 600 500" preserveAspectRatio="xMidYMid meet">
+                    <!-- Map Background Grid will be generated dynamically by JavaScript -->
+                </svg>
+
+                <!-- Feedback Overlay Ring (Target Circle on Success) -->
+                <div id="success-overlay" class="hidden absolute inset-0 bg-emerald-950/30 backdrop-blur-[2px] z-20 flex flex-col items-center justify-center p-3 text-center">
+                    <div class="w-24 h-24 rounded-full border-4 border-emerald-400 bg-emerald-500/40 flex items-center justify-center shadow-xl animate-success-circle mb-2">
+                        <i data-lucide="check-circle" class="w-14 h-14 text-white drop-shadow"></i>
+                    </div>
+                    <h3 id="success-message-text" class="text-lg font-black text-white bg-slate-900/80 px-4 py-1.5 rounded-xl border border-emerald-400 shadow">
+                        謝謝你，我到目的地了！
+                    </h3>
+                    <button id="btn-next-question" class="mt-3 px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-lg transition text-xs flex items-center gap-1">
+                        下一題 (Next) →
+                    </button>
+                </div>
+
+                <!-- Guidance Overlay on Failure -->
+                <div id="failure-overlay" class="hidden absolute inset-0 bg-slate-900/70 backdrop-blur-[2px] z-20 flex flex-col items-center justify-center p-3 text-center">
+                    <div class="w-12 h-12 bg-rose-100 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-2">
+                        <i data-lucide="alert-triangle" class="w-7 h-7"></i>
+                    </div>
+                    <h3 id="failure-reason-text" class="text-sm font-extrabold text-white mb-3">走錯了，我們再試一次。</h3>
+                    <button id="btn-retry-task" class="px-5 py-2 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-xl shadow-md transition text-xs">
+                        重試此題 (Try Again)
+                    </button>
+                </div>
+
+                <!-- Status Overlay Tag on Map -->
+                <div class="absolute top-2 left-2 z-10 pointer-events-none">
+                    <span id="ai-status-tag" class="text-[10px] bg-slate-900/80 backdrop-blur-sm text-slate-200 border border-slate-700 px-2 py-1 rounded-md font-medium shadow">
+                        等待指示...
+                    </span>
+                </div>
+            </div>
+
+            <!-- Voice Control & Text Box (Bottom Section - Fixed Height) -->
+            <div class="bg-white p-2.5 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-2 shrink-0">
+                
+                <!-- Mic Button & Textarea Row Side-by-Side -->
+                <div class="flex items-center gap-2">
+                    <!-- Integrated Mic Toggle Button -->
+                    <div class="relative shrink-0">
+                        <div id="mic-pulse-ring" class="hidden absolute inset-0 rounded-2xl bg-rose-400 opacity-75 animate-mic-pulse"></div>
+                        <button id="btn-mic-toggle" class="relative z-10 w-12 h-12 bg-rose-500 hover:bg-rose-600 text-white rounded-2xl flex items-center justify-center shadow-md active:scale-95 transition">
+                            <i data-lucide="mic" id="icon-mic" class="w-6 h-6"></i>
+                        </button>
+                    </div>
+
+                    <!-- Command Text Area -->
+                    <div class="flex-1 relative">
+                        <textarea id="input-command-text" rows="2" placeholder="點擊下方語塊或拖曳組裝，也可錄音或直接輸入" class="w-full p-2 pr-7 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition resize-none"></textarea>
+                        <button id="btn-clear-text" class="absolute top-1.5 right-1.5 text-slate-400 hover:text-slate-600 p-0.5 rounded" title="清除">
+                            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+
+                    <!-- Submit Go Button -->
+                    <button id="btn-submit-instruction" class="h-12 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-md flex flex-col items-center justify-center gap-0.5 shrink-0 transition active:scale-95">
+                        <i data-lucide="navigation" class="w-4 h-4"></i>
+                        <span class="text-[10px] font-black">出發</span>
+                    </button>
+                </div>
+
+                <!-- SCRAMBLED CHUNKS SECTION (拖曳/點擊重組正確答案語塊) -->
+                <div class="bg-indigo-50/70 rounded-xl p-2 border border-indigo-100 flex flex-col gap-1.5">
+                    <div class="flex items-center justify-between text-[11px] font-bold text-indigo-900 px-0.5">
+                        <span class="flex items-center gap-1">
+                            <i data-lucide="puzzle" class="w-3.5 h-3.5 text-indigo-600"></i>
+                            解答亂序語塊 (拖曳或點擊語塊組裝)：
+                        </span>
+                        <button id="btn-reset-chunks" class="text-[10px] text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5 font-normal">
+                            <i data-lucide="rotate-ccw" class="w-3 h-3"></i> 重置語塊
+                        </button>
+                    </div>
+
+                    <!-- Available Chunks Pool (亂序池) -->
+                    <div id="chunks-pool" class="flex flex-wrap items-center gap-1.5 min-h-[38px] p-1.5 bg-white/80 rounded-lg border border-indigo-100 shadow-inner">
+                        <!-- Dynamically populated chunks -->
+                    </div>
+                </div>
+
+                <!-- Execution Steps Bar -->
+                <div id="execution-steps-list" class="text-[11px] text-slate-500 italic bg-slate-50 px-2 py-1 rounded-lg border border-slate-100 min-h-[26px] flex items-center overflow-x-auto whitespace-nowrap">
+                    <span class="text-slate-400">尚未輸入指示，請錄音、輸入或組合語塊。</span>
+                </div>
+
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        // Global State & Data Models
+        const API_KEY = ""; // Standard runtime auto-injected key
+
+        // Map Node Grid (5x5 Intersections)
+        const GRID_SIZE = 5;
+        
+        // Landmark Buildings placed at specific intersection coordinates (X, Y)
+        const LANDMARKS = [
+            { id: 'school', name: '學校', icon: '🏫', x: 0, y: 0, color: '#fef08a' },
+            { id: 'convenience', name: '便利商店', icon: '🏪', x: 2, y: 0, color: '#fed7aa' },
+            { id: 'postoffice', name: '郵局', icon: '🏣', x: 4, y: 0, color: '#bbf7d0' },
+            { id: 'coffeeshop', name: '咖啡店', icon: '☕', x: 0, y: 2, color: '#fbcfe8' },
+            { id: 'library', name: '圖書館', icon: '📚', x: 2, y: 2, color: '#bae6fd' },
+            { id: 'gym', name: '體育館', icon: '🏟️', x: 4, y: 2, color: '#e9d5ff' },
+            { id: 'bookstore', name: '書店', icon: '📖', x: 0, y: 4, color: '#fde68a' },
+            { id: 'park', name: '公園', icon: '🌳', x: 2, y: 4, color: '#d9f99d' },
+            { id: 'hospital', name: '醫院', icon: '🏥', x: 4, y: 4, color: '#fecdd3' }
+        ];
+
+        // Street Names for aesthetic labels
+        const STREET_NAMES_H = ['忠孝東路', '仁愛路', '信義路']; // horizontal main avenues (Y: 0, 2, 4)
+        const STREET_NAMES_V = ['中山北路', '復興南路', '建國一路']; // vertical main streets (X: 0, 2, 4)
+
+        // Direction vectors: 0: East (+X), 1: South (+Y), 2: West (-X), 3: North (-Y)
+        const DIR_OFFSETS = [
+            { dx: 1, dy: 0, angle: 0 },   // East
+            { dx: 0, dy: 1, angle: 90 },  // South
+            { dx: -1, dy: 0, angle: 180 },// West
+            { dx: 0, dy: -1, angle: 270 } // North
+        ];
+
+        // Game Runtime State
+        let state = {
+            correctCount: 0,
+            taskStartTime: Date.now(),
+            totalStartTime: Date.now(),
+            taskTimerInterval: null,
+            totalTimerInterval: null,
+            
+            soundEnabled: true,
+            isListening: false,
+            isMoving: false,
+
+            // Character Position & Orientation
+            character: {
+                x: 0,
+                y: 0,
+                dir: 0 // 0: East, 1: South, 2: West, 3: North
+            },
+            startPosition: { x: 0, y: 0, dir: 0 },
+            
+            // Current Task & Answer Chunks
+            targetLandmark: null,
+            currentAnswerSteps: [],
+            currentAnswerText: '',
+            
+            // Interactive Scrambled Chunks
+            poolChunks: [],      // Chunks available in pool [{id, text}]
+            selectedChunks: [],  // Chunks picked by student [{id, text}]
+            draggedChunkId: null,
+
+            // Speech Recognition
+            recognition: null
+        };
+
+        // Utility helper function for async delay animations
+        const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        // Utility function to shuffle array items
+        function shuffleArray(array) {
+            const arr = [...array];
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        // Synthesizer Audio Effects using Tone.js
+        let synth = null;
+        try {
+            synth = new Tone.Synth().toDestination();
+        } catch (e) {
+            console.log('Audio Context initialization deferred.');
+        }
+
+        // Initialize Map SVG graphics
+        function initMapSVG() {
+            const svg = document.getElementById('map-svg');
+            svg.innerHTML = ''; // clear
+
+            const width = 600;
+            const height = 500;
+            const margin = 60;
+            const cellWidth = (width - margin * 2) / (GRID_SIZE - 1);
+            const cellHeight = (height - margin * 2) / (GRID_SIZE - 1);
+
+            // 1. Draw Ground / Grass background
+            const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            bg.setAttribute('width', width);
+            bg.setAttribute('height', height);
+            bg.setAttribute('fill', '#1e293b');
+            svg.appendChild(bg);
+
+            // 2. Draw Streets (Roads)
+            // Horizontal roads
+            for (let y = 0; y < GRID_SIZE; y++) {
+                const roadY = margin + y * cellHeight;
+                const road = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                road.setAttribute('x1', margin - 20);
+                road.setAttribute('y1', roadY);
+                road.setAttribute('x2', width - margin + 20);
+                road.setAttribute('y2', roadY);
+                road.setAttribute('stroke', '#475569');
+                road.setAttribute('stroke-width', '24');
+                road.setAttribute('stroke-linecap', 'round');
+                svg.appendChild(road);
+
+                // Dashed Center Line
+                const dash = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                dash.setAttribute('x1', margin - 20);
+                dash.setAttribute('y1', roadY);
+                dash.setAttribute('x2', width - margin + 20);
+                dash.setAttribute('y2', roadY);
+                dash.setAttribute('stroke', '#e2e8f0');
+                dash.setAttribute('stroke-width', '2');
+                dash.setAttribute('stroke-dasharray', '8,8');
+                svg.appendChild(dash);
+
+                // Street Label for major horizontal roads
+                if (y % 2 === 0 && STREET_NAMES_H[y / 2]) {
+                    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    text.setAttribute('x', margin / 2 - 10);
+                    text.setAttribute('y', roadY + 4);
+                    text.setAttribute('fill', '#94a3b8');
+                    text.setAttribute('font-size', '10');
+                    text.setAttribute('font-weight', 'bold');
+                    text.setAttribute('text-anchor', 'middle');
+                    text.textContent = STREET_NAMES_H[y / 2];
+                    svg.appendChild(text);
+                }
+            }
+
+            // Vertical roads
+            for (let x = 0; x < GRID_SIZE; x++) {
+                const roadX = margin + x * cellWidth;
+                const road = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                road.setAttribute('x1', roadX);
+                road.setAttribute('y1', margin - 20);
+                road.setAttribute('x2', roadX);
+                road.setAttribute('y2', height - margin + 20);
+                road.setAttribute('stroke', '#475569');
+                road.setAttribute('stroke-width', '24');
+                road.setAttribute('stroke-linecap', 'round');
+                svg.appendChild(road);
+
+                // Dashed Center Line
+                const dash = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                dash.setAttribute('x1', roadX);
+                dash.setAttribute('y1', margin - 20);
+                dash.setAttribute('x2', roadX);
+                dash.setAttribute('y2', height - margin + 20);
+                dash.setAttribute('stroke', '#e2e8f0');
+                dash.setAttribute('stroke-width', '2');
+                dash.setAttribute('stroke-dasharray', '8,8');
+                svg.appendChild(dash);
+
+                // Street Label for major vertical roads
+                if (x % 2 === 0 && STREET_NAMES_V[x / 2]) {
+                    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    text.setAttribute('x', roadX);
+                    text.setAttribute('y', margin / 2 - 5);
+                    text.setAttribute('fill', '#94a3b8');
+                    text.setAttribute('font-size', '10');
+                    text.setAttribute('font-weight', 'bold');
+                    text.setAttribute('text-anchor', 'middle');
+                    text.textContent = STREET_NAMES_V[x / 2];
+                    svg.appendChild(text);
+                }
+            }
+
+            // 3. Draw Intersections & Traffic Lights (紅綠燈)
+            for (let x = 0; x < GRID_SIZE; x++) {
+                for (let y = 0; y < GRID_SIZE; y++) {
+                    const ix = margin + x * cellWidth;
+                    const iy = margin + y * cellHeight;
+
+                    // Intersection Box
+                    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    rect.setAttribute('x', ix - 12);
+                    rect.setAttribute('y', iy - 12);
+                    rect.setAttribute('width', 24);
+                    rect.setAttribute('height', 24);
+                    rect.setAttribute('fill', '#334155');
+                    rect.setAttribute('rx', 4);
+                    svg.appendChild(rect);
+
+                    // Traffic Light icon badge 🚦 on inner intersections
+                    if ((x + y) % 2 === 1) {
+                        const tlGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                        tlGroup.setAttribute('transform', `translate(${ix + 10}, ${iy - 18})`);
+
+                        const tlBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        tlBg.setAttribute('width', 10);
+                        tlBg.setAttribute('height', 18);
+                        tlBg.setAttribute('fill', '#0f172a');
+                        tlBg.setAttribute('rx', 3);
+                        tlBg.setAttribute('stroke', '#64748b');
+                        tlBg.setAttribute('stroke-width', '1');
+                        tlGroup.appendChild(tlBg);
+
+                        // Red circle
+                        const rCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        rCircle.setAttribute('cx', 5);
+                        rCircle.setAttribute('cy', 5);
+                        rCircle.setAttribute('r', 2.5);
+                        rCircle.setAttribute('fill', '#ef4444');
+                        tlGroup.appendChild(rCircle);
+
+                        // Green circle
+                        const gCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        gCircle.setAttribute('cx', 5);
+                        gCircle.setAttribute('cy', 13);
+                        gCircle.setAttribute('r', 2.5);
+                        gCircle.setAttribute('fill', '#22c55e');
+                        tlGroup.appendChild(gCircle);
+
+                        svg.appendChild(tlGroup);
+                    }
+                }
+            }
+
+            // 4. Draw Buildings / Landmarks
+            LANDMARKS.forEach(lm => {
+                const lx = margin + lm.x * cellWidth;
+                const ly = margin + lm.y * cellHeight;
+
+                const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                group.setAttribute('id', `landmark-${lm.id}`);
+                group.setAttribute('transform', `translate(${lx}, ${ly})`);
+
+                // Building background badge
+                const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                bgRect.setAttribute('x', -26);
+                bgRect.setAttribute('y', -26);
+                bgRect.setAttribute('width', 52);
+                bgRect.setAttribute('height', 52);
+                bgRect.setAttribute('fill', lm.color);
+                bgRect.setAttribute('rx', 12);
+                bgRect.setAttribute('stroke', '#ffffff');
+                bgRect.setAttribute('stroke-width', '3');
+                bgRect.setAttribute('class', 'shadow-md transition duration-300');
+                group.appendChild(bgRect);
+
+                // Building Emoji Icon
+                const textIcon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                textIcon.setAttribute('x', 0);
+                textIcon.setAttribute('y', -3);
+                textIcon.setAttribute('font-size', '22');
+                textIcon.setAttribute('text-anchor', 'middle');
+                textIcon.setAttribute('dominant-baseline', 'middle');
+                textIcon.textContent = lm.icon;
+                group.appendChild(textIcon);
+
+                // Building Label Text
+                const textLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                textLabel.setAttribute('x', 0);
+                textLabel.setAttribute('y', 16);
+                textLabel.setAttribute('font-size', '9');
+                textLabel.setAttribute('font-weight', '900');
+                textLabel.setAttribute('fill', '#1e293b');
+                textLabel.setAttribute('text-anchor', 'middle');
+                textLabel.textContent = lm.name;
+                group.appendChild(textLabel);
+
+                svg.appendChild(group);
+            });
+
+            // 5. Draw Character Avatar Group
+            const charGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            charGroup.setAttribute('id', 'character-avatar');
+            charGroup.setAttribute('class', 'transition-all duration-500 ease-in-out');
+
+            // Character Halo / Ring
+            const charHalo = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            charHalo.setAttribute('r', '20');
+            charHalo.setAttribute('fill', '#6366f1');
+            charHalo.setAttribute('fill-opacity', '0.25');
+            charHalo.setAttribute('stroke', '#4f46e5');
+            charHalo.setAttribute('stroke-width', '2');
+            charGroup.appendChild(charHalo);
+
+            // Character Body Circle
+            const charBody = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            charBody.setAttribute('r', '14');
+            charBody.setAttribute('fill', '#4f46e5');
+            charBody.setAttribute('stroke', '#ffffff');
+            charBody.setAttribute('stroke-width', '2.5');
+            charGroup.appendChild(charBody);
+
+            // Direction Pointer Arrow
+            const charArrow = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+            charArrow.setAttribute('id', 'character-arrow');
+            charArrow.setAttribute('points', '10,0 -4,-6 -2,0 -4,6');
+            charArrow.setAttribute('fill', '#fbbf24');
+            charGroup.appendChild(charArrow);
+
+            // Emoji Icon inside
+            const charEmoji = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            charEmoji.setAttribute('x', '0');
+            charEmoji.setAttribute('y', '1');
+            charEmoji.setAttribute('font-size', '12');
+            charEmoji.setAttribute('text-anchor', 'middle');
+            charEmoji.setAttribute('dominant-baseline', 'middle');
+            charEmoji.textContent = '🚶‍♂️';
+            charGroup.appendChild(charEmoji);
+
+            svg.appendChild(charGroup);
+        }
+
+        // Update Character SVG position and direction on Map
+        function updateCharacterSVG() {
+            const width = 600;
+            const height = 500;
+            const margin = 60;
+            const cellWidth = (width - margin * 2) / (GRID_SIZE - 1);
+            const cellHeight = (height - margin * 2) / (GRID_SIZE - 1);
+
+            const cx = margin + state.character.x * cellWidth;
+            const cy = margin + state.character.y * cellHeight;
+            const dirAngle = DIR_OFFSETS[state.character.dir].angle;
+
+            const avatar = document.getElementById('character-avatar');
+            if (avatar) {
+                avatar.setAttribute('transform', `translate(${cx}, ${cy})`);
+            }
+
+            const arrow = document.getElementById('character-arrow');
+            if (arrow) {
+                arrow.setAttribute('transform', `rotate(${dirAngle}) translate(12, 0)`);
+            }
+        }
+
+        // Generate Correct Navigation Answer Steps Array based on start position and target
+        function generateAnswerSteps(startPos, targetLandmark) {
+            let cx = startPos.x;
+            let cy = startPos.y;
+            let cDir = startPos.dir; // 0: East, 1: South, 2: West, 3: North
+            const tx = targetLandmark.x;
+            const ty = targetLandmark.y;
+            const name = targetLandmark.name;
+
+            const steps = [];
+            let safetyCounter = 0;
+
+            while ((cx !== tx || cy !== ty) && safetyCounter < 20) {
+                safetyCounter++;
+                let dx = tx - cx;
+                let dy = ty - cy;
+
+                let alignX = (cDir === 0 && dx > 0) || (cDir === 2 && dx < 0);
+                let alignY = (cDir === 1 && dy > 0) || (cDir === 3 && dy < 0);
+
+                if (alignX) {
+                    let dist = Math.abs(dx);
+                    steps.push(`往前直走 ${dist} 個路口`);
+                    cx = tx;
+                } else if (alignY) {
+                    let dist = Math.abs(dy);
+                    steps.push(`往前直走 ${dist} 個路口`);
+                    cy = ty;
+                } else {
+                    let desiredDir;
+                    if (cDir === 0 || cDir === 2) {
+                        if (dy !== 0) {
+                            desiredDir = dy > 0 ? 1 : 3;
+                        } else {
+                            desiredDir = dx > 0 ? 0 : 2;
+                        }
+                    } else {
+                        if (dx !== 0) {
+                            desiredDir = dx > 0 ? 0 : 2;
+                        } else {
+                            desiredDir = dy > 0 ? 1 : 3;
+                        }
+                    }
+
+                    let diff = (desiredDir - cDir + 4) % 4;
+                    if (diff === 1) {
+                        steps.push("向右轉");
+                    } else if (diff === 3) {
+                        steps.push("向左轉");
+                    } else if (diff === 2) {
+                        steps.push("向後迴轉");
+                    }
+                    cDir = desiredDir;
+                }
+            }
+
+            steps.push(`${name}就到了。`);
+            return steps;
+        }
+
+        // Initialize / Refresh Scrambled Chunks UI & Interactive Listeners
+        function initChunkSystem(stepsArray) {
+            // Convert steps array into structured chunk objects
+            const originalChunks = stepsArray.map((text, idx) => ({
+                id: `chunk_${idx}_${Date.now()}`,
+                text: text
+            }));
+
+            // Shuffle chunks for the pool
+            let scrambled = shuffleArray(originalChunks);
+            
+            // If shuffling accidentally yields identical order (for short paths), shuffle again
+            if (scrambled.length > 1 && scrambled.every((c, i) => c.text === originalChunks[i].text)) {
+                scrambled.reverse();
+            }
+
+            state.poolChunks = scrambled;
+            state.selectedChunks = [];
+
+            renderChunksUI();
+        }
+
+        // Render Chunks in Pool
+        function renderChunksUI() {
+            const poolEl = document.getElementById('chunks-pool');
+            poolEl.innerHTML = '';
+
+            if (state.poolChunks.length === 0) {
+                poolEl.innerHTML = `<span class="text-[10px] text-emerald-600 font-bold px-1 py-0.5">✓ 所有語塊已加入完畢！</span>`;
+            } else {
+                state.poolChunks.forEach(chunk => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.draggable = true;
+                    btn.dataset.id = chunk.id;
+                    btn.className = 'chunk-block bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-medium px-2 py-1 rounded-md text-[11px] shadow-sm flex items-center gap-1 transition';
+                    btn.innerHTML = `<span>${chunk.text}</span> <i data-lucide="plus" class="w-3 h-3 opacity-70"></i>`;
+                    
+                    // Click to append to selected
+                    btn.addEventListener('click', () => {
+                        moveChunkToSelected(chunk.id);
+                    });
+
+                    // Drag Events
+                    btn.addEventListener('dragstart', (e) => {
+                        state.draggedChunkId = chunk.id;
+                        btn.classList.add('dragging');
+                        e.dataTransfer.setData('text/plain', chunk.id);
+                    });
+
+                    btn.addEventListener('dragend', () => {
+                        btn.classList.remove('dragging');
+                        state.draggedChunkId = null;
+                    });
+
+                    poolEl.appendChild(btn);
+                });
+            }
+
+            // Sync Input Text Area with selected chunks
+            syncSelectedChunksToInput();
+            lucide.createIcons();
+        }
+
+        // Move Chunk from Pool to Selected / Text Area
+        function moveChunkToSelected(chunkId) {
+            const index = state.poolChunks.findIndex(c => c.id === chunkId);
+            if (index !== -1) {
+                const [chunk] = state.poolChunks.splice(index, 1);
+                state.selectedChunks.push(chunk);
+                renderChunksUI();
+            }
+        }
+
+        // Sync Selected Chunks into Command Input Box
+        function syncSelectedChunksToInput() {
+            const input = document.getElementById('input-command-text');
+            if (state.selectedChunks.length > 0) {
+                input.value = state.selectedChunks.map(c => c.text).join('，');
+            } else {
+                input.value = '';
+            }
+        }
+
+        // Reset Chunks to initial scrambled pool state
+        function resetChunks() {
+            if (!state.currentAnswerSteps || state.currentAnswerSteps.length === 0) return;
+            initChunkSystem(state.currentAnswerSteps);
+        }
+
+        // Generate a Random Navigation Task
+        function startNewTask() {
+            // Pick a random destination
+            const availableLandmarks = LANDMARKS.slice();
+            const destIndex = Math.floor(Math.random() * availableLandmarks.length);
+            state.targetLandmark = availableLandmarks[destIndex];
+
+            // Pick a random distinct starting point
+            let startLandmark;
+            do {
+                const sIdx = Math.floor(Math.random() * availableLandmarks.length);
+                startLandmark = availableLandmarks[sIdx];
+            } while (startLandmark.id === state.targetLandmark.id);
+
+            // Random initial direction (0: East, 1: South, 2: West, 3: North)
+            const randomDir = Math.floor(Math.random() * 4);
+
+            state.character = {
+                x: startLandmark.x,
+                y: startLandmark.y,
+                dir: randomDir
+            };
+            state.startPosition = { ...state.character };
+
+            // Calculate correct solution steps and answer text for this task
+            state.currentAnswerSteps = generateAnswerSteps(state.startPosition, state.targetLandmark);
+            state.currentAnswerText = state.currentAnswerSteps.join("，");
+            document.getElementById('answer-text-display').textContent = state.currentAnswerText;
+
+            // Initialize Scrambled Answer Chunks for quiet environment typing/dragging
+            initChunkSystem(state.currentAnswerSteps);
+
+            // Reset Answer Panel state
+            document.getElementById('answer-panel').classList.add('hidden');
+            document.getElementById('answer-btn-text').textContent = '顯示解答';
+
+            // Reset UI Overlays
+            document.getElementById('success-overlay').classList.add('hidden');
+            document.getElementById('failure-overlay').classList.add('hidden');
+            document.getElementById('execution-steps-list').innerHTML = `<span class="text-slate-400">尚未輸入指示，請錄音、輸入或組合語塊。</span>`;
+            document.getElementById('ai-status-tag').textContent = '準備就緒';
+
+            // Update Prompt Text safely with null checks
+            const promptElem = document.getElementById('prompt-dialogue-text');
+            if (promptElem) {
+                promptElem.innerHTML = `我要去<span id="target-name-display" class="text-yellow-300 underline font-extrabold px-1">${state.targetLandmark.name}</span>，請你幫我好嗎？`;
+            } else {
+                const targetDisplay = document.getElementById('target-name-display');
+                if (targetDisplay) {
+                    targetDisplay.textContent = state.targetLandmark.name;
+                }
+            }
+
+            // Reset Single Task Timer
+            state.taskStartTime = Date.now();
+
+            // Render updated avatar location
+            updateCharacterSVG();
+
+            // Highlight target landmark visually
+            LANDMARKS.forEach(lm => {
+                const elem = document.getElementById(`landmark-${lm.id}`);
+                if (elem) {
+                    const rect = elem.querySelector('rect');
+                    if (lm.id === state.targetLandmark.id) {
+                        rect.setAttribute('stroke', '#f59e0b');
+                        rect.setAttribute('stroke-width', '5');
+                    } else {
+                        rect.setAttribute('stroke', '#ffffff');
+                        rect.setAttribute('stroke-width', '3');
+                    }
+                }
+            });
+
+            // Speak Prompt Utterance
+            speakText(`我迷路了，我要去${state.targetLandmark.name}，請你幫我好嗎？`);
+        }
+
+        // Web Speech Synthesis (TTS) Helper
+        function speakText(text) {
+            if (!state.soundEnabled) return;
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel(); // Stop ongoing audio
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'zh-TW';
+                utterance.rate = 0.95; // Slightly clear and deliberate for language learners
+                utterance.pitch = 1.1;
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        // Play Sound Effect via Tone.js
+        function playAudioTone(type) {
+            if (!state.soundEnabled || !synth) return;
+            try {
+                if (Tone.context.state !== 'running') {
+                    Tone.start();
+                }
+                if (type === 'step') {
+                    synth.triggerAttackRelease('C5', '16n');
+                } else if (type === 'turn') {
+                    synth.triggerAttackRelease('E5', '16n');
+                } else if (type === 'success') {
+                    const now = Tone.now();
+                    synth.triggerAttackRelease('C5', '8n', now);
+                    synth.triggerAttackRelease('E5', '8n', now + 0.15);
+                    synth.triggerAttackRelease('G5', '8n', now + 0.3);
+                    synth.triggerAttackRelease('C6', '4n', now + 0.45);
+                } else if (type === 'error') {
+                    const now = Tone.now();
+                    synth.triggerAttackRelease('A3', '8n', now);
+                    synth.triggerAttackRelease('F3', '8n', now + 0.2);
+                }
+            } catch (e) {
+                console.log(e);
+            }
+        }
+
+        // Timers Manager
+        function initTimers() {
+            clearInterval(state.taskTimerInterval);
+            clearInterval(state.totalTimerInterval);
+
+            state.taskTimerInterval = setInterval(() => {
+                const seconds = Math.floor((Date.now() - state.taskStartTime) / 1000);
+                const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
+                const ss = String(seconds % 60).padStart(2, '0');
+                document.getElementById('stat-task-time').textContent = `${mm}:${ss}`;
+            }, 1000);
+
+            state.totalTimerInterval = setInterval(() => {
+                const seconds = Math.floor((Date.now() - state.totalStartTime) / 1000);
+                const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
+                const ss = String(seconds % 60).padStart(2, '0');
+                document.getElementById('stat-total-time').textContent = `${mm}:${ss}`;
+            }, 1000);
+        }
+
+        // Rule-based Sequential Parser for Chinese Navigation Directions
+        function parseDirectionsFallback(inputText) {
+            const matches = [];
+            const numMap = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '兩': 2, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5 };
+
+            let text = inputText.trim();
+
+            // 1. Match movement with explicit step count (allows optional whitespace \s*)
+            // e.g., "往前直走 2 個路口", "直走2個紅綠燈", "過 3 個路口", "走兩格"
+            const moveCountRegex = /(?:過[了]*|走|前進|直走|往前)*\s*([一二三四五12345兩])\s*個*\s*(?:紅綠燈|路口|格|街區|步)/g;
+            let m;
+            while ((m = moveCountRegex.exec(text)) !== null) {
+                const count = numMap[m[1]] || 1;
+                matches.push({
+                    index: m.index,
+                    length: m[0].length,
+                    action: 'move_forward',
+                    steps: count,
+                    desc: `往前直走 ${count} 個路口`
+                });
+            }
+
+            // 2. Match simple forward movement without explicit numbers
+            const moveSimpleRegex = /(?:往前直走|向前直走|直走|往前|前進)/g;
+            while ((m = moveSimpleRegex.exec(text)) !== null) {
+                const overlap = matches.some(match => m.index >= match.index && m.index < match.index + match.length);
+                if (!overlap) {
+                    matches.push({
+                        index: m.index,
+                        length: m[0].length,
+                        action: 'move_forward',
+                        steps: 1,
+                        desc: '往前直走 1 個路口'
+                    });
+                }
+            }
+
+            // 3. Match left turn
+            const leftRegex = /(?:向|往)?左轉|向左|往左/g;
+            while ((m = leftRegex.exec(text)) !== null) {
+                const overlap = matches.some(match => m.index >= match.index && m.index < match.index + match.length);
+                if (!overlap) {
+                    matches.push({
+                        index: m.index,
+                        length: m[0].length,
+                        action: 'turn_left',
+                        desc: '向左轉'
+                    });
+                }
+            }
+
+            // 4. Match right turn
+            const rightRegex = /(?:向|往)?右轉|向右|往右/g;
+            while ((m = rightRegex.exec(text)) !== null) {
+                const overlap = matches.some(match => m.index >= match.index && m.index < match.index + match.length);
+                if (!overlap) {
+                    matches.push({
+                        index: m.index,
+                        length: m[0].length,
+                        action: 'turn_right',
+                        desc: '向右轉'
+                    });
+                }
+            }
+
+            // 5. Match U-turn
+            const uTurnRegex = /迴轉|(?:向|往)?後轉/g;
+            while ((m = uTurnRegex.exec(text)) !== null) {
+                const overlap = matches.some(match => m.index >= match.index && m.index < match.index + match.length);
+                if (!overlap) {
+                    matches.push({
+                        index: m.index,
+                        length: m[0].length,
+                        action: 'u_turn',
+                        desc: '向後迴轉'
+                    });
+                }
+            }
+
+            // Sort matches strictly by position in text
+            matches.sort((a, b) => a.index - b.index);
+
+            // Filter out overlapping or nested match fragments
+            const filtered = [];
+            let lastEnd = -1;
+            for (const item of matches) {
+                if (item.index >= lastEnd) {
+                    filtered.push(item);
+                    lastEnd = item.index + item.length;
+                }
+            }
+
+            // Default fallback
+            if (filtered.length === 0 && text.length > 0) {
+                filtered.push({ action: 'move_forward', steps: 1, desc: '往前直走 1 個路口' });
+            }
+
+            return filtered;
+        }
+
+        // Call Gemini API to parse natural free-form spoken Chinese into discrete grid steps
+        async function parseDirectionsWithGemini(userText) {
+            if (!API_KEY) {
+                return parseDirectionsFallback(userText);
+            }
+
+            const prompt = `你是華語學習問路遊戲的指令解析器。請分析學生輸入的中文問路指示，將其轉化為小人在方格街道地圖上的順序移動指令陣列。
+現有動作類別：
+1. "move_forward" (往前直走 N 個路口，必填 steps: 數字)
+2. "turn_left" (向左轉 90 度)
+3. "turn_right" (向右轉 90 度)
+4. "u_turn" (向後迴轉 180 度)
+
+學生語音/文字輸入: "${userText}"`;
+
+            const systemPrompt = "Respond ONLY in JSON matching schema: Array of objects [{action: string, steps?: number, desc: string}]";
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${API_KEY}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: {
+                            responseMimeType: "application/json",
+                            responseSchema: {
+                                type: "ARRAY",
+                                items: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        "action": { "type": "STRING", "enum": ["move_forward", "turn_left", "turn_right", "u_turn"] },
+                                        "steps": { "type": "INTEGER" },
+                                        "desc": { "type": "STRING" }
+                                    },
+                                    "required": ["action", "desc"]
+                                }
+                            }
+                        }
+                    })
+                });
+
+                const data = await response.json();
+                const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (jsonText) {
+                    const parsedSteps = JSON.parse(jsonText);
+                    if (Array.isArray(parsedSteps) && parsedSteps.length > 0) {
+                        return parsedSteps;
+                    }
+                }
+            } catch (err) {
+                console.warn('Gemini API call failed, using local rule parser fallback:', err);
+            }
+
+            return parseDirectionsFallback(userText);
+        }
+
+        // Main command submission handler
+        async function handleCommandSubmit() {
+            if (state.isMoving) return;
+
+            const inputVal = document.getElementById('input-command-text').value.trim();
+            if (!inputVal) {
+                document.getElementById('execution-steps-list').innerHTML = `<span class="text-amber-600 font-medium font-bold">請先點擊語塊、錄音或輸入指示文字！</span>`;
+                return;
+            }
+
+            // Reset character back to starting position before running new path
+            resetCharacterToStart();
+            
+            // Hide previous overlays
+            document.getElementById('success-overlay').classList.add('hidden');
+            document.getElementById('failure-overlay').classList.add('hidden');
+
+            const statusTag = document.getElementById('ai-status-tag');
+            statusTag.textContent = '解析指令中...';
+            statusTag.className = 'text-[10px] bg-indigo-100 text-indigo-700 font-semibold px-2 py-0.5 rounded-md animate-pulse';
+
+            // Parse directions into sequential movement steps
+            const steps = await parseDirectionsWithGemini(inputVal);
+
+            statusTag.textContent = '小人移動中...';
+            statusTag.className = 'text-[10px] bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-md';
+
+            // Execute steps animation
+            await executeNavigationSteps(steps);
+
+            statusTag.textContent = '指令執行完成';
+            statusTag.className = 'text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md';
+        }
+
+        // Initialize Speech Recognition API
+        function initSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const micBtn = document.getElementById('btn-mic-toggle');
+            const micPulse = document.getElementById('mic-pulse-ring');
+            const statusTag = document.getElementById('ai-status-tag');
+
+            if (!SpeechRecognition) {
+                if (statusTag) statusTag.textContent = '不支援語音錄音 (請直接輸入)';
+                micBtn.disabled = true;
+                micBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                return;
+            }
+
+            state.recognition = new SpeechRecognition();
+            state.recognition.lang = 'zh-TW';
+            state.recognition.continuous = false;
+            state.recognition.interimResults = true;
+
+            state.recognition.onstart = () => {
+                state.isListening = true;
+                micPulse.classList.remove('hidden');
+                if (statusTag) {
+                    statusTag.textContent = '🎙️ 正在聆聽中...';
+                    statusTag.className = 'text-[10px] bg-rose-600 text-white px-2 py-1 rounded-md font-medium shadow animate-pulse';
+                }
+            };
+
+            state.recognition.onresult = (event) => {
+                let transcript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    transcript += event.results[i][0].transcript;
+                }
+                document.getElementById('input-command-text').value = transcript;
+            };
+
+            state.recognition.onerror = (event) => {
+                console.warn('Speech recognition error:', event.error);
+                stopListeningUI();
+            };
+
+            state.recognition.onend = () => {
+                stopListeningUI();
+                if (statusTag) {
+                    statusTag.textContent = '錄音完成，請點擊【出發】';
+                    statusTag.className = 'text-[10px] bg-indigo-900/80 backdrop-blur-sm text-indigo-200 border border-indigo-700 px-2 py-1 rounded-md font-medium shadow';
+                }
+            };
+
+            function stopListeningUI() {
+                state.isListening = false;
+                micPulse.classList.add('hidden');
+            }
+
+            micBtn.addEventListener('click', () => {
+                if (state.isListening) {
+                    state.recognition.stop();
+                } else {
+                    state.recognition.start();
+                }
+            });
+        }
+
+        // Execute Parsed Movement Steps Animation
+        async function executeNavigationSteps(steps) {
+            state.isMoving = true;
+            document.getElementById('btn-submit-instruction').disabled = true;
+            document.getElementById('btn-submit-instruction').classList.add('opacity-50', 'cursor-not-allowed');
+
+            const logBox = document.getElementById('execution-steps-list');
+            logBox.innerHTML = '';
+
+            // Render execution steps badge
+            steps.forEach((st, idx) => {
+                const badge = document.createElement('span');
+                badge.id = `step-badge-${idx}`;
+                badge.className = 'px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 text-[10px] shrink-0 mr-1.5 flex items-center gap-1 shadow-sm transition';
+                badge.innerHTML = `<b class="text-indigo-600">${idx + 1}.</b> ${st.desc}`;
+                logBox.appendChild(badge);
+            });
+
+            // Step-by-step Execution with Delay
+            for (let i = 0; i < steps.length; i++) {
+                const st = steps[i];
+                const badge = document.getElementById(`step-badge-${i}`);
+                if (badge) {
+                    badge.className = 'px-2 py-0.5 rounded-md bg-indigo-50 border-2 border-indigo-400 font-bold text-indigo-800 text-[10px] shrink-0 mr-1.5 flex items-center gap-1 shadow-sm';
+                }
+
+                if (st.action === 'turn_left') {
+                    state.character.dir = (state.character.dir + 3) % 4;
+                    playAudioTone('turn');
+                    updateCharacterSVG();
+                    await delay(500);
+                } else if (st.action === 'turn_right') {
+                    state.character.dir = (state.character.dir + 1) % 4;
+                    playAudioTone('turn');
+                    updateCharacterSVG();
+                    await delay(500);
+                } else if (st.action === 'u_turn') {
+                    state.character.dir = (state.character.dir + 2) % 4;
+                    playAudioTone('turn');
+                    updateCharacterSVG();
+                    await delay(500);
+                } else if (st.action === 'move_forward') {
+                    const numSteps = st.steps || 1;
+                    for (let s = 0; s < numSteps; s++) {
+                        const offset = DIR_OFFSETS[state.character.dir];
+                        const nextX = state.character.x + offset.dx;
+                        const nextY = state.character.y + offset.dy;
+
+                        // Boundary Check (0..4)
+                        if (nextX >= 0 && nextX < GRID_SIZE && nextY >= 0 && nextY < GRID_SIZE) {
+                            state.character.x = nextX;
+                            state.character.y = nextY;
+                            playAudioTone('step');
+                            updateCharacterSVG();
+                            await delay(600);
+                        } else {
+                            // Hit edge / wall
+                            playAudioTone('error');
+                            await delay(300);
+                            break;
+                        }
+                    }
+                }
+
+                if (badge) {
+                    badge.className = 'px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-400 line-through text-[10px] shrink-0 mr-1.5 flex items-center gap-1 opacity-70';
+                }
+            }
+
+            state.isMoving = false;
+            document.getElementById('btn-submit-instruction').disabled = false;
+            document.getElementById('btn-submit-instruction').classList.remove('opacity-50', 'cursor-not-allowed');
+
+            // Verify Destination Goal
+            verifyDestination();
+        }
+
+        // Verify if Character Reached Target Landmark Endpoint
+        function verifyDestination() {
+            const currentX = state.character.x;
+            const currentY = state.character.y;
+            const targetX = state.targetLandmark.x;
+            const targetY = state.targetLandmark.y;
+
+            if (currentX === targetX && currentY === targetY) {
+                // SUCCESS!!
+                state.correctCount++;
+                document.getElementById('stat-correct-count').textContent = state.correctCount;
+                playAudioTone('success');
+
+                const targetName = state.targetLandmark.name;
+                const successMsg = `謝謝你，我到${targetName}了。`;
+                document.getElementById('success-message-text').textContent = successMsg;
+                document.getElementById('success-overlay').classList.remove('hidden');
+
+                speakText(successMsg);
+            } else {
+                // FAILURE / MISSED TARGET
+                playAudioTone('error');
+
+                const failMsg = `走錯了，我們再試一次。`;
+                document.getElementById('failure-reason-text').textContent = failMsg;
+                document.getElementById('failure-overlay').classList.remove('hidden');
+
+                speakText(failMsg);
+            }
+        }
+
+        // Reset Character back to initial starting location
+        function resetCharacterToStart() {
+            state.character = { ...state.startPosition };
+            updateCharacterSVG();
+            document.getElementById('failure-overlay').classList.add('hidden');
+        }
+
+        // Attach Event Listeners
+        function setupEventListeners() {
+            // New Task Button
+            document.getElementById('btn-new-task').addEventListener('click', () => {
+                startNewTask();
+            });
+
+            // Replay Voice Prompt
+            document.getElementById('btn-replay-prompt').addEventListener('click', () => {
+                speakText(`我迷路了，我要去${state.targetLandmark.name}，請你幫我好嗎？`);
+            });
+
+            // Toggle Answer Panel
+            document.getElementById('btn-toggle-answer').addEventListener('click', () => {
+                const panel = document.getElementById('answer-panel');
+                const btnText = document.getElementById('answer-btn-text');
+                const isHidden = panel.classList.contains('hidden');
+                
+                if (isHidden) {
+                    panel.classList.remove('hidden');
+                    btnText.textContent = '隱藏解答';
+                } else {
+                    panel.classList.add('hidden');
+                    btnText.textContent = '顯示解答';
+                }
+            });
+
+            // Play Correct Answer Speech
+            document.getElementById('btn-speak-answer').addEventListener('click', () => {
+                if (state.currentAnswerText) {
+                    speakText(state.currentAnswerText);
+                }
+            });
+
+            // Apply Answer to Input Box
+            document.getElementById('btn-apply-answer').addEventListener('click', () => {
+                if (state.currentAnswerText) {
+                    document.getElementById('input-command-text').value = state.currentAnswerText;
+                }
+            });
+
+            // Reset Chunks Button
+            document.getElementById('btn-reset-chunks').addEventListener('click', () => {
+                resetChunks();
+            });
+
+            // Sound Toggle
+            document.getElementById('btn-sound-toggle').addEventListener('click', () => {
+                state.soundEnabled = !state.soundEnabled;
+                const icon = document.getElementById('icon-sound');
+                if (state.soundEnabled) {
+                    icon.setAttribute('data-lucide', 'volume-2');
+                    document.getElementById('btn-sound-toggle').classList.replace('text-slate-400', 'text-slate-600');
+                } else {
+                    icon.setAttribute('data-lucide', 'volume-x');
+                    document.getElementById('btn-sound-toggle').classList.replace('text-slate-600', 'text-slate-400');
+                }
+                lucide.createIcons();
+            });
+
+            // Drag and Drop Zone for Input Textarea
+            const textarea = document.getElementById('input-command-text');
+            textarea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                textarea.classList.add('drop-target-active');
+            });
+
+            textarea.addEventListener('dragleave', () => {
+                textarea.classList.remove('drop-target-active');
+            });
+
+            textarea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                textarea.classList.remove('drop-target-active');
+                const chunkId = e.dataTransfer.getData('text/plain') || state.draggedChunkId;
+                if (chunkId) {
+                    moveChunkToSelected(chunkId);
+                }
+            });
+
+            // Clear Input Area
+            document.getElementById('btn-clear-text').addEventListener('click', () => {
+                resetChunks();
+            });
+
+            // Submit Instruction Button
+            document.getElementById('btn-submit-instruction').addEventListener('click', () => {
+                handleCommandSubmit();
+            });
+
+            // Retry Task Button
+            document.getElementById('btn-retry-task').addEventListener('click', () => {
+                resetCharacterToStart();
+            });
+
+            // Next Question Button
+            document.getElementById('btn-next-question').addEventListener('click', () => {
+                startNewTask();
+            });
+        }
+
+        // Page Onload Initialization
+        window.onload = function () {
+            // Initialize Lucide icons
+            lucide.createIcons();
+
+            // Initialize Map Graphics
+            initMapSVG();
+
+            // Setup Timers
+            initTimers();
+
+            // Setup Speech Recognition
+            initSpeechRecognition();
+
+            // Event Handlers
+            setupEventListeners();
+
+            // Start First Task
+            startNewTask();
+        };
+    </script>
+</body>
+</html>
